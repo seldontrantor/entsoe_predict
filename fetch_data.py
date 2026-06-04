@@ -193,6 +193,7 @@ def fetch_loads(start_time: str,
                          name="loads",
                          start_time=start_time,
                          end_time=end_time,
+                         logger_file="fetch_loads",
                          )
     data.index.name = 'time'
 
@@ -228,9 +229,18 @@ def fetch_day_ahead(start_time: str,
                          name="day_ahead_price",
                          start_time=start_time,
                          end_time=end_time,
+                         logger_file="fetch_day_ahead"
                          )
 
     os.makedirs('fetched_data/day_ahead_price/', exist_ok=True)
+
+    ## check for outliers, data issue
+    price_mean = data['day_ahead_price'].mean()
+    data['day_ahead_price'] = data['day_ahead_price'].where(
+        data['day_ahead_price'] > -150,
+        price_mean
+    )
+
     data.to_csv(f'fetched_data/day_ahead_price/'
                 f'{start_time.strftime("%Y-%m-%d")}_to_'
                 f'{end_time.strftime("%Y-%m-%d")}.csv')
@@ -250,7 +260,9 @@ def data_merger (df_price:pd.DataFrame,
 
     merged_data = pd.concat([df_price, df_load, df_gen_actual, df_renewable_forecast], axis=1)
 
-    _log_helper_df_stats(merged_data, name="merged_data")
+    _log_helper_df_stats(merged_data,
+                         name="merged_data",
+                         logger_file="data_merger")
 
     os.makedirs('fetched_data/merged/', exist_ok=True)
     merged_data.to_csv(f'fetched_data/merged/merged_'
@@ -260,24 +272,25 @@ def data_merger (df_price:pd.DataFrame,
     return merged_data
 
 
-start_time = "2026-02-01"
-horizon   = 5
-assets = ['B16', 'B18','B19']
 
-df_concat_gen_renewables = concat_gen_data(start_time=start_time,
-                                           horizon=horizon,
-                                          )
+if __name__ == '__main__':
 
-df_price_day_ahead = fetch_day_ahead(start_time=start_time,
-                                     horizon=horizon,
-                                     )
-df_forecast_renewables = fetch_renewable_forecast(start_time=start_time,
-                                                  horizon=horizon)
-df_loads = fetch_loads(start_time=start_time,
-                       horizon=horizon)
+    start_time = "2026-01-01"
+    horizon   = 5*30 # days
+    assets = ['B16', 'B18','B19']
 
+    df_concat_gen_renewables = concat_gen_data(start_time=start_time,
+                                               horizon=horizon,
+                                              )
 
-merged = data_merger(df_price=df_price_day_ahead,
-                     df_load= df_loads,
-                     df_gen_actual=df_concat_gen_renewables,
-                     df_renewable_forecast= df_forecast_renewables)
+    df_price_day_ahead = fetch_day_ahead(start_time=start_time,
+                                         horizon=horizon,
+                                         )
+    df_forecast_renewables = fetch_renewable_forecast(start_time=start_time,
+                                                      horizon=horizon)
+    df_loads = fetch_loads(start_time=start_time,
+                           horizon=horizon)
+    merged = data_merger(df_price=df_price_day_ahead,
+                         df_load= df_loads,
+                         df_gen_actual=df_concat_gen_renewables,
+                         df_renewable_forecast= df_forecast_renewables)

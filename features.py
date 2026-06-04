@@ -53,33 +53,19 @@ def _logger(df: pd.DataFrame,
 
 def feature_builder(path: str,
                     index : int = 0,
-                    parse_date = True,
-                    lagged : int = 24) -> tuple:
-    """
-    Builds and processes features based on input data for a predictive modeling pipeline.
+                    lagged : int = 24,
+                    tz  = "Europe/Brussels") -> tuple:
 
-    The `feature_builder` function takes a CSV file as input, processes the indexed time series data
-    to generate additional features such as sinusoidal transformations of time attributes (hour,
-    month, and day-of-week), and lagged variables. The processed features are then saved to a
-    designated directory for further use. This function is specifically tailored for time series and
-    forecast modeling tasks.
 
-    :param path: A string representing the file path to the input CSV data.
-    :param index: The column index to be used as the DataFrame index. Defaults to 0.
-    :param parse_date: A boolean indicating whether to parse the index column as datetime. Defaults
-        to True.
-    :param lagged: An integer representing the lag value (in hours) for creating the lagged feature
-        variable. Defaults to 24.
-    :return: A tuple containing the original DataFrame with all generated features and a processed
-        feature subset DataFrame.
-    """
+    df = pd.read_csv(path)
 
-    df = pd.read_csv(path,
-                     index_col=index,
-                     parse_dates=parse_date)
+    ## Daylight saving
+    df["time"] = pd.to_datetime(df["time"], utc=True)
+    df = df.set_index("time")
+    ## back to brussel
+    df.index = df.index.tz_convert(tz)
 
     df.columns = df.columns.str.replace(" ","_")
-
 
     df['sine_h'] = np.sin(df.index.hour * 2 *np.pi/24)
     df['cos_h'] = np.cos(df.index.hour * 2 *np.pi/24)
@@ -124,17 +110,16 @@ def feature_builder(path: str,
 
 
 
-path = 'fetched_data/merged/merged_2026-02-01_to_2026-02-05.csv'
+if __name__ == '__main__':
+    path = 'fetched_data/merged/merged_2026-01-01_to_2026-05-31.csv'
+    df, df_feature = feature_builder(path)
 
-df,df_feature = feature_builder(path)
-
-
-# cors = df_feature.corr()
-# corr_one = df_feature.corr(numeric_only=True)["day_ahead_price"].dropna().sort_values()
-# corr_one.plot(kind="barh", figsize=(8, 10))
-# plt.title("Correlation with day_ahead_price")
-# plt.tight_layout()
-# plt.yticks(rotation=45)
-# plt.show()
+    # cors = df_feature.corr()
+    # corr_one = df_feature.corr(numeric_only=True)["day_ahead_price"].dropna().sort_values()
+    # corr_one.plot(kind="barh", figsize=(8, 10))
+    # plt.title("Correlation with day_ahead_price")
+    # plt.tight_layout()
+    # plt.yticks(rotation=45)
+    # plt.show()
 
 
