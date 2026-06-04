@@ -220,3 +220,6 @@ __marimo__/
 ## folder to ignore for github
 logs
 fetched_data
+gold
+
+.idea
