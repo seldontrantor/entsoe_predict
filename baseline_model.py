@@ -7,7 +7,8 @@ from sklearn.pipeline import Pipeline
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import numpy as np
-
+import mlflow
+from mlflow.models.signature import infer_signature
 
 os.makedirs('logs', exist_ok=True)
 log_file = f'logs/baseline_model_{dt.datetime.now().strftime("%Y-%m-%d_%H_%M")}.log'
@@ -84,45 +85,98 @@ def make_pipe(model,
     print(f'RMSE for baseline: {RMSE:.2f}')
     print(f'R2 for baseline: {R2:.2f}')
 
-    return preds, model
+    return preds, pipe
 
 
 if __name__ == '__main__':
     path = 'gold/features_2026-01-01_to_2026-05-31'
+
+    train_start="2026-01-01"
+    train_end="2026-05-04"
+
     df_train_x, df_train_y, df_test_x, df_test_y = train_test_split(path,
-                                                                    train_start="2026-01-01",
-                                                                    train_end="2026-05-04",
+                                                                    train_start=train_start,
+                                                                    train_end=train_end,
                                                                     target_col="day_ahead_price")
+
+
     model = xgb.XGBRFRegressor(n_estimators=1000)
-    preds, model = make_pipe(model, df_train_x, df_train_y, df_test_x, df_test_y )
+    preds, fitted_pipe = make_pipe(model, df_train_x, df_train_y, df_test_x, df_test_y )
 
-    FI = model.feature_importances_
-    feature_names = df_train_x.columns
-    for name, score in zip(feature_names, FI):
-        print(name, score)
+    fitted_model = fitted_pipe.named_steps["model"]
+    mlflow.set_experiment('day_ahead_price_forecast_DE_LU')
+    with mlflow.start_run() as run:
 
-    fig, ax = plt.subplots(dpi =200, tight_layout=True)
-    ax.plot(preds, label='predicts')
-    ax.plot(df_test_y, label='true')
-    plt.legend()
-    plt.show()
+        # log params
+        mlflow.log_param('model_class', model.__class__.__name__)
+        mlflow.set_tag("stage", "Staging")
 
-    ## naive baseline:
-    naive_mae = mean_absolute_error(df_test_y, np.full_like(df_test_y, df_test_y.mean()))
-    logger.info('naive_mae: %.2f', naive_mae)
-    print(f'naive_mae: {naive_mae}')
+        FI = fitted_model.feature_importances_
+        feature_names = df_train_x.columns
+        for name, score in zip(feature_names, FI):
+            print(name, score)
 
-    y_true = df_test_y
-    y_pred = df_test_x["lagged_price_24"]
+        fig, ax = plt.subplots(dpi =200, tight_layout=True)
+        ax.plot(preds, label='predicts')
+        ax.plot(df_test_y, label='true')
+        plt.legend()
+        plt.show()
 
-    mae_lagged = mean_absolute_error(y_true, y_pred)
-    rmse_lagged = root_mean_squared_error(y_true, y_pred)
-    r2_lagged = r2_score(y_true, y_pred)
+        # model metrics
+        MAE = mean_absolute_error(df_test_y,preds)
+        RMSE = root_mean_squared_error(df_test_y,preds)
+        R2 = r2_score(df_test_y,preds)
 
-    print(f"Baseline MAE: {mae_lagged:.2f}")
-    print(f"Baseline RMSE: {rmse_lagged:.2f}")
-    print(f"Baseline R2: {r2_lagged:.2f}")
+        print(f"Xgb MAE: {MAE:.2f}")
+        print(f"Xgb RMSE: {RMSE:.2f}")
+        print(f"Xgb R2: {R2:.2f}")
 
-    logger.info(f"Baseline MAE: {mae_lagged:.2f}")
-    logger.info(f"Baseline RMSE: {rmse_lagged:.2f}")
-    logger.info(f"Baseline R2: {r2_lagged:.2f}")
+        # log metrics for xgb
+        mlflow.log_metric('MAE', float(MAE))
+        mlflow.log_metric('RMSE', float(RMSE))
+        mlflow.log_metric('R2', float(R2))
+
+        # log params for xgb model:
+        mlflow.log_param("train_start", train_start)
+        mlflow.log_param("train_end", train_end)
+        mlflow.log_param("clip_threshold", -150)
+        mlflow.log_param("train_size", len(df_train_x))
+        mlflow.log_param("test_size", len(df_test_x))
+
+        # log input and signature
+        input_example = df_train_x.head(5)
+        signature = infer_signature(input_example, fitted_model.predict(input_example))
+
+        # log model artifact (
+        mlflow.xgboost.log_model(
+            fitted_model,  # fitted model
+            "model",
+            model_format="json",
+            signature=signature,
+            input_example=input_example,
+            registered_model_name="gxboost"
+        )
+
+        ## naive baseline:
+        naive_mae = mean_absolute_error(df_test_y, np.full_like(df_test_y, df_test_y.mean()))
+        logger.info('naive_mae: %.2f', naive_mae)
+        print(f'naive_mae: {naive_mae}')
+
+        y_true = df_test_y
+        y_pred = df_test_x["lagged_price_24"]
+
+        mae_lagged = mean_absolute_error(y_true, y_pred)
+        rmse_lagged = root_mean_squared_error(y_true, y_pred)
+        r2_lagged = r2_score(y_true, y_pred)
+
+        print(f"Baseline MAE: {mae_lagged:.2f}")
+        print(f"Baseline RMSE: {rmse_lagged:.2f}")
+        print(f"Baseline R2: {r2_lagged:.2f}")
+
+        mlflow.log_metric("Baseline MAE", float(mae_lagged))
+        mlflow.log_metric("Baseline RMSE", float(rmse_lagged))
+        mlflow.log_metric("naive_mae", float(naive_mae))
+
+        logger.info(f"Baseline MAE: {mae_lagged:.2f}")
+        logger.info(f"Baseline RMSE: {rmse_lagged:.2f}")
+        logger.info(f"Baseline R2: {r2_lagged:.2f}")
