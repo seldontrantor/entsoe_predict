@@ -221,5 +221,6 @@ __marimo__/
 logs
 fetched_data
 gold
+mlruns
 
 .idea/
