@@ -224,3 +224,4 @@ gold
 mlruns
 
 .idea/
+.dockerignore
