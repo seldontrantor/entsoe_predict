@@ -19,6 +19,7 @@ def _log_helper_df_stats(df,
                          plant_type: Optional[str] = None,
                          logger_file: Optional[str] = None,
                          logger: Optional[logging.Logger] = None,
+                         timegap: Optional = None
                          ):
 
     if logger is None:
@@ -54,6 +55,12 @@ def _log_helper_df_stats(df,
         length= abs(end_time - start_time).days*24*4
         logger.info(f"Fetched over: {start_time} and {end_time}")
         logger.info(f'Length of input per days {length} and the data len {len(df)}')
+
+        if timegap != 15:
+            logger.warning(f" The time gap between data is manually adjusted to be 15 mins instead of {timegap} ❌")
+        else:
+            logger.info(f" The time gap between data is 15 mins ✅")
+
         if length != len(df):
             logger.warning(
                 f"Length of input per days {length} and the data len {len(df)} do not match\n"
@@ -127,6 +134,8 @@ def concat_gen_data(start_time:str,
                        client_type=client_type,
                        plant_type=i
                        )
+        if isinstance(d.columns, pd.MultiIndex):
+            d = d.xs("Actual Aggregated", level=1, axis=1)
         data_each.append(d)
 
     data = pd.concat(data_each, axis=1)
@@ -198,9 +207,12 @@ def fetch_loads(start_time: str,
     data.index.name = 'time'
 
     os.makedirs('fetched_data/loads/', exist_ok=True)
-    data.to_csv(f'fetched_data/loads/load_'
-                f'{start_time.strftime("%Y-%m-%d")}_to_'
-                f'{end_time.strftime("%Y-%m-%d")}.csv')
+    loads_output = (f'fetched_data/loads/load_'
+    f'{start_time.strftime("%Y-%m-%d")}_to_'
+    f'{end_time.strftime("%Y-%m-%d")}.csv'
+                    )
+
+    data.to_csv(loads_output)
     return data
 
 
@@ -223,13 +235,21 @@ def fetch_day_ahead(start_time: str,
 
     data = data.to_frame('day_ahead_price')
     data.index.name = 'time'
-    data = data.iloc[:-1,:]
+    timegap = (int((data.index[1] - data.index[0]) / pd.Timedelta('1min')))
+
+    if timegap != 15:
+        # treat as hourly price and fill backwards:
+        data = data.resample(rule = '15min').ffill()
+        data = data.iloc[:-1,:]
+    else:
+        data = data.iloc[:-1,:]
 
     _log_helper_df_stats(data,
                          name="day_ahead_price",
                          start_time=start_time,
                          end_time=end_time,
-                         logger_file="fetch_day_ahead"
+                         logger_file="fetch_day_ahead",
+                         timegap = timegap
                          )
 
     os.makedirs('fetched_data/day_ahead_price/', exist_ok=True)
@@ -252,7 +272,7 @@ def data_merger (df_price:pd.DataFrame,
                  df_load:pd.DataFrame,
                  df_gen_actual:pd.DataFrame,
                  df_renewable_forecast:pd.DataFrame
-                 )-> pd.DataFrame:
+                 )-> tuple:
 
     assert df_price.index.equals(df_load.index)
     assert df_gen_actual.index.equals(df_renewable_forecast.index)
@@ -265,18 +285,23 @@ def data_merger (df_price:pd.DataFrame,
                          logger_file="data_merger")
 
     os.makedirs('fetched_data/merged/', exist_ok=True)
-    merged_data.to_csv(f'fetched_data/merged/merged_'
-                f'{merged_data.index[1].strftime("%Y-%m-%d")}_to_'
-                f'{merged_data.index[-1].strftime("%Y-%m-%d")}.csv')
 
-    return merged_data
+    output_path = (
+        f'fetched_data/merged/merged_'
+        f'{merged_data.index[1].strftime("%Y-%m-%d")}_to_'
+        f'{merged_data.index[-1].strftime("%Y-%m-%d")}.csv'
+    )
+
+    merged_data.to_csv(output_path)
+
+    return merged_data, output_path
 
 
 
 if __name__ == '__main__':
 
-    start_time = "2026-01-01"
-    horizon   = 5*30 # days
+    start_time = "2024-01-01"
+    horizon   = 5 # days
     assets = ['B16', 'B18','B19']
 
     df_concat_gen_renewables = concat_gen_data(start_time=start_time,
@@ -290,7 +315,7 @@ if __name__ == '__main__':
                                                       horizon=horizon)
     df_loads = fetch_loads(start_time=start_time,
                            horizon=horizon)
-    merged = data_merger(df_price=df_price_day_ahead,
+    merged, output_path = data_merger(df_price=df_price_day_ahead,
                          df_load= df_loads,
                          df_gen_actual=df_concat_gen_renewables,
                          df_renewable_forecast= df_forecast_renewables)
