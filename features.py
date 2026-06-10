@@ -1,10 +1,9 @@
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import logging
-from typing import Optional
 import datetime as dt
+from config import EXPECTED_COLUMNS_AND_ORDER
 
 
 os.makedirs('logs', exist_ok=True)
@@ -56,6 +55,24 @@ def feature_builder(path: str,
                     lagged : int = 24,
                     tz  = "Europe/Brussels") -> tuple:
 
+    """
+    Builds and processes feature sets from a given CSV file containing time-series data. The function reads the data,
+    applies transformations including time zone adjustments, feature engineering for cyclical time components,
+    and lag variable creation. It saves the generated features to a CSV file and returns both the transformed complete
+    dataframe and the dataframe of selected features.
+
+    :param path: The file path of the input CSV file containing the raw data.
+    :type path: str
+    :param index: The starting index to process the data. Defaults to 0.
+    :type index: int, optional
+    :param lagged: Number of time steps for the lagged price feature. Defaults to 24.
+    :type lagged: int, optional
+    :param tz: Timezone used for converting the timestamp column. Defaults to "Europe/Brussels".
+    :type tz: str, optional
+    :return: A tuple containing the full processed dataframe and the dataframe with selected features.
+    :rtype: tuple
+    """
+
 
     df = pd.read_csv(path)
 
@@ -102,17 +119,37 @@ def feature_builder(path: str,
 
     df_feature = df[columns_to_save].copy()
     df_feature['wind_forecast_total'] = df_feature['Wind_Onshore_forecast'] + df_feature['Wind_Offshore_forecast']
-    df_feature.to_csv(f'gold/features{path[-29:-4]}')
+    gold_output_path = f'gold/features{path[-29:-4]}'
+
+    df_feature.to_csv(gold_output_path)
 
     _logger(df=df_feature, file_name='features_saved')
 
-    return df, df_feature
+    return df, df_feature, gold_output_path
 
+def prepare_inference_features(path:str):
+
+    df = pd.read_csv(path,
+                     index_col=0,
+                     parse_dates=True)
+
+
+
+    if list(df.columns) == EXPECTED_COLUMNS_AND_ORDER:
+        print("Columns match and order is correct")
+    else:
+        missing = [c for c in EXPECTED_COLUMNS_AND_ORDER if c not in df.columns]
+        extra = [c for c in df.columns if c not in EXPECTED_COLUMNS_AND_ORDER]
+        raise KeyError(f"Column mismatch. Missing: {missing}. Extra: {extra}")
+
+    X = df.drop(columns='day_ahead_price')
+
+    return X
 
 
 if __name__ == '__main__':
-    path = 'fetched_data/merged/merged_2026-01-01_to_2026-05-31.csv'
-    df, df_feature = feature_builder(path)
+    path = 'fetched_data/merged/merged_2024-01-01_to_2024-01-05.csv'
+    df, df_feature, gold_output_path = feature_builder(path)
 
     # cors = df_feature.corr()
     # corr_one = df_feature.corr(numeric_only=True)["day_ahead_price"].dropna().sort_values()
