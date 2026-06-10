@@ -1,4 +1,7 @@
-FROM ubuntu:latest
-LABEL authors="amin"
-
-ENTRYPOINT ["top", "-b"]
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY api_request.py features.py fetch_data.py config.py ./
+EXPOSE 8000
+CMD ["uvicorn", "api_request:app", "--host", "0.0.0.0", "--port", "8000"]
