@@ -1,0 +1,12 @@
+entsoe_py==0.8.0
+fastapi==0.136.3
+uvicorn==0.35.0
+pandas==2.2.3
+numpy
+mlflow==2.20.3
+pydantic==2.13.4
+python-dotenv==1.2.2
+scikit-learn==1.9.0
+xgboost==3.2.0
+boto3
+s3fs
