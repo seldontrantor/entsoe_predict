@@ -96,6 +96,7 @@ Example response shape:
 
 `baseline_model.py` trains an `xgboost.XGBRFRegressor` on a feature CSV, reports
 MAE, RMSE, and R2, logs metrics to MLflow, and registers the trained model.
+MAE 22.29 EUR/MWh vs naive baseline of 43.59.
 
 ```bash
 python baseline_model.py
