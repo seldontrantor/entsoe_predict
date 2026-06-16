@@ -154,7 +154,7 @@ if __name__ == '__main__':
             model_format="json",
             signature=signature,
             input_example=input_example,
-            registered_model_name="gxboost"
+            registered_model_name="xgboost"
         )
 
         ## naive baseline:
