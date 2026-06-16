@@ -8,7 +8,7 @@ from entsoe import EntsoePandasClient
 
 load_dotenv()
 
-API_KEY = os.getenv("ENTENSO_API")
+API_KEY = os.getenv("ENTSO_API")
 
 os.makedirs('logs', exist_ok=True)
 
