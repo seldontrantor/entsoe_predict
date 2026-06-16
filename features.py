@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import logging
+from pathlib import Path
 import datetime as dt
 from config import EXPECTED_COLUMNS_AND_ORDER
 
@@ -119,7 +120,8 @@ def feature_builder(path: str,
 
     df_feature = df[columns_to_save].copy()
     df_feature['wind_forecast_total'] = df_feature['Wind_Onshore_forecast'] + df_feature['Wind_Offshore_forecast']
-    gold_output_path = f'gold/features{path[-29:-4]}'
+    feature_stem = Path(path).stem.replace("merged_", "features_", 1)
+    gold_output_path = str(Path("gold") / feature_stem)
 
     df_feature.to_csv(gold_output_path)
 
