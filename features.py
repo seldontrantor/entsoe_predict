@@ -36,7 +36,7 @@ def _logger(df: pd.DataFrame,
 
     missing = df.isna().sum().sum()
     if missing > 0 :
-        logger.warning(f"There Are missing values ❌ : {df.isna().sum()}")
+        logger.warning(f"There are missing values ❌ : {df.isna().sum()}")
         logger.warning(f"Missing total: {missing}")
     else:
         logger.info(f"There are no missing values ✅ ")
