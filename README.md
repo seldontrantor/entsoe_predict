@@ -11,11 +11,12 @@ builds a feature table, trains a baseline model, and exposes a forecast API.
 
 The tracked code covers:
 
-- fetching day-ahead prices, actual renewable generation, renewable forecasts,
-  and load forecasts from ENTSO-E
+- fetching day-ahead prices, renewable forecasts, and load forecasts from
+  ENTSO-E for inference
+- fetching actual renewable generation for historical data collection and
+  backtesting workflows
 - merging fetched data into a single time-indexed dataset
-- building cyclical time features, lagged prices, and renewable interaction
-  features
+- building cyclical time features and renewable interaction features
 - training an `XGBRFRegressor` baseline and logging metrics/model artifacts to
   MLflow
 - loading an MLflow pyfunc model at API startup and returning predictions from a
@@ -42,15 +43,16 @@ the scripts at runtime.
 2. The fetch step collects:
    - day-ahead prices
    - forecasted load
-   - actual solar, offshore wind, and onshore wind generation
    - forecasted solar, offshore wind, and onshore wind generation
-3. `data_merger()` checks that all inputs share the same timestamp index and
-   saves the merged dataset under `fetched_data/merged/`.
+3. `inference_data_merger()` checks that day-ahead prices, load forecasts, and
+   renewable forecasts share the same timestamp index and saves the merged
+   dataset under `fetched_data/merged/`.
 4. `feature_builder()` converts timestamps to `Europe/Brussels`, creates
-   cyclical calendar features, adds a 24-step lagged price feature, creates solar
-   interaction features, and saves the final feature table under `gold/`.
+   cyclical calendar features and solar interaction features, and saves the
+   final feature table under `gold/`.
 5. `prepare_inference_features()` validates that columns match
-   `EXPECTED_COLUMNS_AND_ORDER`, then drops `day_ahead_price` before prediction.
+   `EXPECTED_COLUMNS_AND_ORDER`, drops `day_ahead_price`, and casts model input
+   columns to floats before prediction.
 
 ## Environment Variables
 
@@ -96,7 +98,18 @@ Example response shape:
 
 `baseline_model.py` trains an `xgboost.XGBRFRegressor` on a feature CSV, reports
 MAE, RMSE, and R2, logs metrics to MLflow, and registers the trained model.
-MAE 22.29 EUR/MWh vs naive baseline of 43.59.
+
+Latest recorded metrics:
+
+| Metric | Value |
+| --- | ---: |
+| Model MAE | 18.63 |
+| Model RMSE | 30.57 |
+| Model R2 | 0.56 |
+| Naive MAE | 28.53 |
+| Lagged baseline MAE | 34.39 |
+| Lagged baseline RMSE | 52.04 |
+| Lagged baseline R2 | -0.26 |
 
 ```bash
 python baseline_model.py
@@ -105,7 +118,7 @@ python baseline_model.py
 The script currently expects a feature dataset at:
 
 ```text
-gold/features_2026-01-01_to_2026-05-31
+gold/features_2024-01-01_to_2025-12-30
 ```
 
 ## Docker
