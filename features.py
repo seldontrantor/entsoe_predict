@@ -53,21 +53,18 @@ def _logger(df: pd.DataFrame,
 
 def feature_builder(path: str,
                     index : int = 0,
-                    lagged : int = 24,
                     tz  = "Europe/Brussels") -> tuple:
 
     """
     Builds and processes feature sets from a given CSV file containing time-series data. The function reads the data,
-    applies transformations including time zone adjustments, feature engineering for cyclical time components,
-    and lag variable creation. It saves the generated features to a CSV file and returns both the transformed complete
-    dataframe and the dataframe of selected features.
+    applies transformations including time zone adjustments and feature engineering for cyclical time components.
+    It saves the generated features to a CSV file and returns both the transformed complete dataframe and the
+    dataframe of selected features.
 
     :param path: The file path of the input CSV file containing the raw data.
     :type path: str
     :param index: The starting index to process the data. Defaults to 0.
     :type index: int, optional
-    :param lagged: Number of time steps for the lagged price feature. Defaults to 24.
-    :type lagged: int, optional
     :param tz: Timezone used for converting the timestamp column. Defaults to "Europe/Brussels".
     :type tz: str, optional
     :return: A tuple containing the full processed dataframe and the dataframe with selected features.
@@ -97,14 +94,6 @@ def feature_builder(path: str,
 
     df['weekend'] = df['dow'].isin([5,6]).astype(int)
 
-    price_mean = df["day_ahead_price"].mean()
-
-    df[f'lagged_price_{lagged}'] = (
-                                    df['day_ahead_price']
-                                    .shift(lagged)
-                                    .fillna(price_mean)
-                                    )
-
     df['solar_sin_inter'] = df['Solar_forecast'] * df['sine_h']
     df['solar_cos_inter'] = df['Solar_forecast'] * df['cos_h']
 
@@ -116,7 +105,7 @@ def feature_builder(path: str,
     columns_to_save = ['day_ahead_price','Forecasted_Load', 'Solar_forecast',
                        'Wind_Offshore_forecast', 'Wind_Onshore_forecast', 'sine_h', 'cos_h',
                        'sine_month', 'cos_month', 'dow', 'sine_dow', 'cos_dow', 'weekend',
-                       'lagged_price_24', 'solar_sin_inter', 'solar_cos_inter']
+                       'solar_sin_inter', 'solar_cos_inter']
 
     df_feature = df[columns_to_save].copy()
     df_feature['wind_forecast_total'] = df_feature['Wind_Onshore_forecast'] + df_feature['Wind_Offshore_forecast']
@@ -144,13 +133,13 @@ def prepare_inference_features(path:str):
         extra = [c for c in df.columns if c not in EXPECTED_COLUMNS_AND_ORDER]
         raise KeyError(f"Column mismatch. Missing: {missing}. Extra: {extra}")
 
-    X = df.drop(columns='day_ahead_price')
+    X = df.drop(columns='day_ahead_price').astype(float)
 
     return X
 
 
 if __name__ == '__main__':
-    path = 'fetched_data/merged/merged_2024-01-01_to_2024-01-05.csv'
+    path = 'fetched_data/merged/merged_2024-01-01_to_2025-12-30.csv'
     df, df_feature, gold_output_path = feature_builder(path)
 
     # cors = df_feature.corr()
@@ -160,5 +149,3 @@ if __name__ == '__main__':
     # plt.tight_layout()
     # plt.yticks(rotation=45)
     # plt.show()
-
-
