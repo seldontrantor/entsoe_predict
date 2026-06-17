@@ -37,11 +37,11 @@ def train_test_split(path: str,
     train = df.loc[train_start:train_end]
     test = df.loc[test_start:]
 
-    df_train_x = train.drop(columns=target_col)
-    df_train_y = train[target_col].values
+    df_train_x = train.drop(columns=target_col).astype(float)
+    df_train_y = train[target_col]
 
-    df_test_x = test.drop(columns=target_col)
-    df_test_y = test[target_col].values
+    df_test_x = test.drop(columns=target_col).astype(float)
+    df_test_y = test[target_col]
 
     logger.info(f'Negative prices in train set: {sum(df_train_y<0)}')
     logger.info(f'Negative prices in test set: {sum(df_test_y<0)}')
@@ -81,18 +81,18 @@ def make_pipe(model,
     logger.info('RMSE: %.2f', RMSE)
     logger.info('R2: %.2f', R2)
 
-    print(f'MAE for baseline: {MAE:.2f}')
-    print(f'RMSE for baseline: {RMSE:.2f}')
-    print(f'R2 for baseline: {R2:.2f}')
+    print(f'Model MAE: {MAE:.2f}')
+    print(f'Model RMSE: {RMSE:.2f}')
+    print(f'Model R2: {R2:.2f}')
 
     return preds, pipe
 
 
 if __name__ == '__main__':
-    path = 'gold/features_2026-01-01_to_2026-05-31'
+    path = 'gold/features_2024-01-01_to_2025-12-30'
 
-    train_start="2026-01-01"
-    train_end="2026-05-04"
+    train_start="2024-01-01"
+    train_end="2025-10-01"
 
     df_train_x, df_train_y, df_test_x, df_test_y = train_test_split(path,
                                                                     train_start=train_start,
@@ -118,7 +118,7 @@ if __name__ == '__main__':
 
         fig, ax = plt.subplots(dpi =200, tight_layout=True)
         ax.plot(preds, label='predicts')
-        ax.plot(df_test_y, label='true')
+        ax.plot(df_test_y.values, label='true')
         plt.legend()
         plt.show()
 
@@ -162,21 +162,28 @@ if __name__ == '__main__':
         logger.info('naive_mae: %.2f', naive_mae)
         print(f'naive_mae: {naive_mae}')
 
-        y_true = df_test_y
-        y_pred = df_test_x["lagged_price_24"]
+        lagged_baseline = (
+            pd.concat([df_train_y, df_test_y])
+            .shift(24)
+            .loc[df_test_y.index]
+        )
+        valid_lagged = lagged_baseline.notna()
+        y_true_lagged = df_test_y.loc[valid_lagged]
+        y_pred_lagged = lagged_baseline.loc[valid_lagged]
 
-        mae_lagged = mean_absolute_error(y_true, y_pred)
-        rmse_lagged = root_mean_squared_error(y_true, y_pred)
-        r2_lagged = r2_score(y_true, y_pred)
+        mae_lagged = mean_absolute_error(y_true_lagged, y_pred_lagged)
+        rmse_lagged = root_mean_squared_error(y_true_lagged, y_pred_lagged)
+        r2_lagged = r2_score(y_true_lagged, y_pred_lagged)
 
-        print(f"Baseline MAE: {mae_lagged:.2f}")
-        print(f"Baseline RMSE: {rmse_lagged:.2f}")
-        print(f"Baseline R2: {r2_lagged:.2f}")
+        print(f"Lagged baseline MAE: {mae_lagged:.2f}")
+        print(f"Lagged baseline RMSE: {rmse_lagged:.2f}")
+        print(f"Lagged baseline R2: {r2_lagged:.2f}")
 
-        mlflow.log_metric("Baseline MAE", float(mae_lagged))
-        mlflow.log_metric("Baseline RMSE", float(rmse_lagged))
+        mlflow.log_metric("Lagged baseline MAE", float(mae_lagged))
+        mlflow.log_metric("Lagged baseline RMSE", float(rmse_lagged))
+        mlflow.log_metric("Lagged baseline R2", float(r2_lagged))
         mlflow.log_metric("naive_mae", float(naive_mae))
 
-        logger.info(f"Baseline MAE: {mae_lagged:.2f}")
-        logger.info(f"Baseline RMSE: {rmse_lagged:.2f}")
-        logger.info(f"Baseline R2: {r2_lagged:.2f}")
+        logger.info(f"Lagged baseline MAE: {mae_lagged:.2f}")
+        logger.info(f"Lagged baseline RMSE: {rmse_lagged:.2f}")
+        logger.info(f"Lagged baseline R2: {r2_lagged:.2f}")
