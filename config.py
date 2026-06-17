@@ -10,7 +10,6 @@ EXPECTED_COLUMNS_AND_ORDER = ['day_ahead_price',
                               'sine_dow',
                               'cos_dow',
                               'weekend',
-                              'lagged_price_24',
                               'solar_sin_inter',
                               'solar_cos_inter',
                               'wind_forecast_total']

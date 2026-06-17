@@ -8,9 +8,79 @@ from entsoe import EntsoePandasClient
 
 load_dotenv()
 
-API_KEY = os.getenv("ENTSO_API")
+API_KEY = os.getenv("ENTENSO_API")
 
 os.makedirs('logs', exist_ok=True)
+
+
+def _expected_15min_index(start_time: pd.Timestamp,
+                          end_time: pd.Timestamp) -> pd.DatetimeIndex:
+    expected_index = pd.date_range(start=start_time,
+                                   end=end_time,
+                                   freq='15min',
+                                   inclusive='left')
+    expected_index.name = 'time'
+    return expected_index
+
+
+def _safe_timestamp_for_filename(value: str) -> str:
+    return pd.Timestamp(value).strftime("%Y-%m-%d_%H-%M-%S")
+
+
+def _align_to_expected_index(df: pd.DataFrame,
+                             start_time: pd.Timestamp,
+                             end_time: pd.Timestamp,
+                             name: str) -> pd.DataFrame:
+    expected_index = _expected_15min_index(start_time, end_time)
+    missing_index = expected_index.difference(df.index)
+    extra_index = df.index.difference(expected_index)
+
+    logger = logging.getLogger(__name__)
+    if len(missing_index) > 0:
+        logger.warning("%s is missing %s expected timestamps", name, len(missing_index))
+        logger.warning("First missing timestamps for %s: %s", name, missing_index[:5].tolist())
+    if len(extra_index) > 0:
+        logger.warning("%s has %s unexpected timestamps", name, len(extra_index))
+        logger.warning("First unexpected timestamps for %s: %s", name, extra_index[:5].tolist())
+
+    return df.reindex(expected_index)
+
+
+def _interpolate_small_gaps(df: pd.DataFrame,
+                            name: str,
+                            limit: int = 4) -> pd.DataFrame:
+    missing_before = int(df.isna().sum().sum())
+    if missing_before == 0:
+        return df
+
+    filled = df.interpolate(method='time',
+                            limit=limit,
+                            limit_direction='both')
+    missing_after = int(filled.isna().sum().sum())
+
+    logger = logging.getLogger(__name__)
+    logger.warning("%s missing values before interpolation: %s", name, missing_before)
+    logger.warning("%s missing values after interpolation: %s", name, missing_after)
+
+    return filled
+
+
+def _assert_same_index(left: pd.DataFrame,
+                       right: pd.DataFrame,
+                       left_name: str,
+                       right_name: str) -> None:
+    if left.index.equals(right.index):
+        return
+
+    left_only = left.index.difference(right.index)
+    right_only = right.index.difference(left.index)
+    raise ValueError(
+        f"{left_name} and {right_name} indexes do not match. "
+        f"{left_name}-only timestamps: {left_only[:5].tolist()}; "
+        f"{right_name}-only timestamps: {right_only[:5].tolist()}; "
+        f"{left_name} length: {len(left)}, {right_name} length: {len(right)}"
+    )
+
 
 def _log_helper_df_stats(df,
                          name: str,
@@ -52,7 +122,7 @@ def _log_helper_df_stats(df,
     if plant_type:
         logger.info(f"Type of plant: {plant_type}")
     if start_time and end_time:
-        length= abs(end_time - start_time).days*24*4
+        length = int(abs(end_time - start_time) / pd.Timedelta('15min'))
         logger.info(f"Fetched over: {start_time} and {end_time}")
         logger.info(f'Length of input per days {length} and the data len {len(df)}')
 
@@ -64,9 +134,8 @@ def _log_helper_df_stats(df,
         if length != len(df):
             logger.warning(
                 f"Length of input per days {length} and the data len {len(df)} do not match\n"
-                "Are you sure you haven't fetched data from the future?"
+                "Fetched data does not cover every expected 15-minute timestamp."
             )
-            raise AssertionError("length mismatch, fetching from future?")
 
     if logger_file:
         logger.removeHandler(fh)
@@ -107,6 +176,11 @@ def fetch_gen_data (start_time:str,
                                    end=end_time,
                                    psr_type=plant_type,
                                    )
+    data.index.name = 'time'
+    data = _align_to_expected_index(data,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    name=f"generation {plant_type}")
     _log_helper_df_stats(data,
                          name="generation",
                          start_time=start_time,
@@ -114,8 +188,6 @@ def fetch_gen_data (start_time:str,
                          plant_type=plant_type,
                          logger_file="fetch_gen"
                          )
-
-    data.index.name = 'time'
 
     return data
 
@@ -140,14 +212,16 @@ def concat_gen_data(start_time:str,
 
     data = pd.concat(data_each, axis=1)
     data.columns = ['Solar_gen', 'Wind_Offshore_gen', 'Wind_Onshore_gen']
+    data = _interpolate_small_gaps(data, name="renewables_generated_all")
 
     # data= data.fillna(0)
 
     _log_helper_df_stats(data, name="renewables_generated_all")
 
     os.makedirs('fetched_data/renewables_gen/', exist_ok=True)
+    start_time_label = _safe_timestamp_for_filename(start_time)
     data.to_csv(f'fetched_data/renewables_gen/all_gen'
-                f'{start_time}_for'
+                f'{start_time_label}_for'
                 f'{horizon}_days.csv')
 
     return data
@@ -164,6 +238,12 @@ def fetch_renewable_forecast(start_time: str,
     end_time = start_time + pd.Timedelta(horizon, unit='D')
     client = client_type(API_KEY)
     data = client.query_wind_and_solar_forecast(country_code=country_code, start=start_time, end=end_time)
+    data.index.name = 'time'
+    data = _align_to_expected_index(data,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    name="renewables_forecast")
+    data = _interpolate_small_gaps(data, name="renewables_forecast")
 
     _log_helper_df_stats(data,
                          name="renewables_forecast",
@@ -173,7 +253,6 @@ def fetch_renewable_forecast(start_time: str,
 
                          )
 
-    data.index.name = 'time'
     data.columns = ['Solar_forecast','Wind_Offshore_forecast','Wind_Onshore_forecast']
 
     os.makedirs('fetched_data/renewables_forecast/', exist_ok=True)
@@ -197,6 +276,12 @@ def fetch_loads(start_time: str,
 
     client = client_type(API_KEY)
     data = client.query_load_and_forecast(country_code=country_code, start=start_time, end=end_time)
+    data.index.name = 'time'
+    data = _align_to_expected_index(data,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    name="loads")
+    data = _interpolate_small_gaps(data, name="loads")
 
     _log_helper_df_stats(data,
                          name="loads",
@@ -204,7 +289,6 @@ def fetch_loads(start_time: str,
                          end_time=end_time,
                          logger_file="fetch_loads",
                          )
-    data.index.name = 'time'
 
     os.makedirs('fetched_data/loads/', exist_ok=True)
     loads_output = (f'fetched_data/loads/load_'
@@ -243,6 +327,11 @@ def fetch_day_ahead(start_time: str,
         data = data.iloc[:-1,:]
     else:
         data = data.iloc[:-1,:]
+    data = _align_to_expected_index(data,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    name="day_ahead_price")
+    data = data.ffill().bfill()
 
     _log_helper_df_stats(data,
                          name="day_ahead_price",
@@ -274,9 +363,9 @@ def data_merger (df_price:pd.DataFrame,
                  df_renewable_forecast:pd.DataFrame
                  )-> tuple:
 
-    assert df_price.index.equals(df_load.index)
-    assert df_gen_actual.index.equals(df_renewable_forecast.index)
-    assert df_price.index.equals(df_renewable_forecast.index)
+    _assert_same_index(df_price, df_load, "price", "load")
+    _assert_same_index(df_gen_actual, df_renewable_forecast, "generation", "renewable forecast")
+    _assert_same_index(df_price, df_renewable_forecast, "price", "renewable forecast")
 
     merged_data = pd.concat([df_price, df_load, df_gen_actual, df_renewable_forecast], axis=1)
 
@@ -297,11 +386,37 @@ def data_merger (df_price:pd.DataFrame,
     return merged_data, output_path
 
 
+def inference_data_merger(df_price: pd.DataFrame,
+                          df_load: pd.DataFrame,
+                          df_renewable_forecast: pd.DataFrame) -> tuple:
+
+    _assert_same_index(df_price, df_load, "price", "load")
+    _assert_same_index(df_price, df_renewable_forecast, "price", "renewable forecast")
+
+    merged_data = pd.concat([df_price, df_load, df_renewable_forecast], axis=1)
+
+    _log_helper_df_stats(merged_data,
+                         name="inference_merged_data",
+                         logger_file="inference_data_merger")
+
+    os.makedirs('fetched_data/merged/', exist_ok=True)
+
+    output_path = (
+        f'fetched_data/merged/merged_'
+        f'{merged_data.index[1].strftime("%Y-%m-%d")}_to_'
+        f'{merged_data.index[-1].strftime("%Y-%m-%d")}.csv'
+    )
+
+    merged_data.to_csv(output_path)
+
+    return merged_data, output_path
+
+
 
 if __name__ == '__main__':
 
     start_time = "2024-01-01"
-    horizon   = 5 # days
+    horizon   = 2*365 # days
     assets = ['B16', 'B18','B19']
 
     df_concat_gen_renewables = concat_gen_data(start_time=start_time,
