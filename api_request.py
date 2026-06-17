@@ -2,11 +2,10 @@ import os
 import mlflow
 from fastapi import FastAPI
 from fetch_data import (
-    concat_gen_data,
     fetch_day_ahead,
     fetch_renewable_forecast,
     fetch_loads,
-    data_merger)
+    inference_data_merger)
 from features import feature_builder, prepare_inference_features
 from contextlib import asynccontextmanager
 from fastapi import HTTPException
@@ -37,12 +36,6 @@ def data(request: ForecastRequest):
     start_time = request.start_time
     horizon = request.horizon
     try:
-        df_concat_gen_renewables = (concat_gen_data
-                                (start_time=start_time,
-                                horizon=horizon,
-                                               )
-                                )
-
         df_price_day_ahead = fetch_day_ahead(start_time=start_time,
                                          horizon=horizon,
                                          )
@@ -50,10 +43,10 @@ def data(request: ForecastRequest):
                                                       horizon=horizon)
         df_loads = fetch_loads(start_time=start_time,
                            horizon=horizon)
-        merged, output_path_merged = data_merger(df_price=df_price_day_ahead,
-                         df_load= df_loads,
-                         df_gen_actual=df_concat_gen_renewables,
-                         df_renewable_forecast= df_forecast_renewables)
+        merged, output_path_merged = inference_data_merger(
+            df_price=df_price_day_ahead,
+            df_load=df_loads,
+            df_renewable_forecast=df_forecast_renewables)
 
         df, df_feature, gold_output_path = feature_builder(output_path_merged)
 
@@ -68,7 +61,17 @@ def data(request: ForecastRequest):
     if loaded_model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
-    preds = loaded_model.predict(X)
+    try:
+        preds = loaded_model.predict(X)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Failed to run model prediction: {str(e)}",
+                "input_columns": X.columns.tolist(),
+                "input_shape": list(X.shape),
+            }
+        )
 
 
     return {"start_date": start_time,
